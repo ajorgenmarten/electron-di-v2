@@ -1,39 +1,85 @@
 import { Class, Provider } from "../types/types";
 import Metadata from "./metadata";
+import { Reflector } from "./utilities";
+
+// Clave para buscar el proveedor
+type Key = Class | string
 
 export default class Container {
   private modules: Set<Class> = new Set();
-  // [MODULE, CONTROLLER]
+  // [MODULO, CONTROLADOR]
   private controllers: [Class, Class][] = [];
-  // [MODULE, PROVIDER]
+  // [MODULO, PROVEEDOR]
   private providers: [Class, Provider][] = [];
+  // [MODULO, CLAVE DEL PROVEEDOR]
+  private exports: [Class, Key][] = [];
   
   public register(module: Class, visited: Class[]) {
     const moduleMetadata = Metadata.Module.get(module)
     if (!moduleMetadata) throw new Error(`Class ${module.name} is not a module.`)
     if (visited.includes(module)) throw new Error(`Circular import for module ${module.name}.`)
 
-    const controllers = moduleMetadata.controllers ?? []
-    const providers = moduleMetadata.providers ?? []
-    const imports = moduleMetadata.imports ?? []
+    const controllers = moduleMetadata.controllers ?? [];
+    const providers = moduleMetadata.providers ?? [];
+    const imports = moduleMetadata.imports ?? [];
+    const exports = moduleMetadata.exports ?? [];
 
     for(const controller of controllers)
-      this.registerController(controller, module)
+      this.controllers.push([module, controller]);
 
     for(const provider of providers)
-      this.registerProvider(provider, module)
+      this.providers.push([module, provider]);
 
-    this.modules.add(module)
+    for(const exportProvider of exports)
+      this.exports.push([module, exportProvider]);
+
+    this.modules.add(module);
 
     for(const importModule of imports)
-      this.register(importModule, [...visited, module])
+      this.register(importModule, [...visited, module]);
   }
 
-  private registerController(controller: Class, scope: Class) {
-    this.controllers.push([scope, controller])
+  public resolve(key: Key, scope: Class, visited: Key[] = []) {
+    const utilities = [Reflector];
+
+    if (typeof key === 'function' && utilities.includes(key)) 
+      return new (utilities.find(u => u === key) as Class)()
+
+    if (visited.includes(key))
+      throw new Error(`Circular dependency detected for ${typeof key === 'string' ? key : key.name}`)
+
+    const globalProvider = this.resolveInGlobalModules(key, [...visited])
+
   }
 
-  private registerProvider(provider: Provider, scope: Class) {
-    this.providers.push([scope, provider])
+  private resolveInGlobalModules(key: Key, visited: Key[]) {
+    const getGlobalModules = () => {
+      const globals = [];
+      for(const module of this.modules) {
+        const globalMetadata = Metadata.Global.get(module)
+        if (global) globals.push(module)
+      }
+      return globals;
+    }
+
+    const globalsModules = getGlobalModules();
+    for(const globalModule of globalsModules) {
+      const foundProvider = this.providers.find(p => {
+        const [providerScope, provider] = p;
+        if (providerScope !== globalModule) return false;
+        if (typeof provider === 'object' && provider.provided !== key) return false;
+        return true;
+      });
+      if (!foundProvider) continue;
+
+      const [, provider] = foundProvider;
+      let providerValue = typeof provider === 'function'
+        ? provider
+        : provider.useClass || provider.useValue || provider.useFactory;
+
+    }
+
+    return null;
   }
 }
+

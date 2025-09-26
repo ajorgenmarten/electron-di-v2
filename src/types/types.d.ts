@@ -12,3 +12,4 @@ export type ModulePayload = {
   providers?: Provider[],
   imports?: Class[],
 }
+export type InjectablePayload = "transient" | "singleton"

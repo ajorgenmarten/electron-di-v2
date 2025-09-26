@@ -13,6 +13,8 @@ export default class Container {
   private providers: [Class, Provider][] = [];
   // [MODULO, CLAVE DEL PROVEEDOR]
   private exports: [Class, Key][] = [];
+  // [MODULO, CLAVE, INSTANCIA]
+  private instances: [Class, Key, any][] = [];
   
   public register(module: Class, visited: Class[]) {
     const moduleMetadata = Metadata.Module.get(module)
@@ -39,6 +41,7 @@ export default class Container {
       this.register(importModule, [...visited, module]);
   }
 
+  // Punto de entrada para resolver un proveedor
   public resolve(key: Key, scope: Class, visited: Key[] = []) {
     const utilities = [Reflector];
 
@@ -52,6 +55,7 @@ export default class Container {
 
   }
 
+  // Resolver provider en modulos globales
   private resolveInGlobalModules(key: Key, visited: Key[]) {
     const getGlobalModules = () => {
       const globals = [];
@@ -86,6 +90,7 @@ export default class Container {
     return null;
   }
 
+  // Obtener las dependencias del provider
   private getProviderDependencies(provider: Provider) {
     let dependencies: Key[];
     let injecteds: Key[];
@@ -105,6 +110,7 @@ export default class Container {
     return dependencies;
   }
 
+  // Obtener el scope de vida del provider
   private getProviderScopeType(provider: Provider): InjectablePayload {
     let type;
     if (typeof provider === 'function') {

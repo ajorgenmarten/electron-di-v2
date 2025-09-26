@@ -1,4 +1,4 @@
-import { ModulePayload } from "../types/types"
+import { Class, ModulePayload } from "../types/types"
 
 const MODULE_SYMBOL = Symbol('module');
 const GLOBAL_SYMBOL = Symbol('global');
@@ -27,7 +27,7 @@ export default class Metadata {
     get(target: Object) {
       return Reflect.getMetadata(INJECT_SYMBOL, target) || []
     },
-    set(target: Object, index: number, value: string) {
+    set(target: Object, index: number, value: Class | String) {
       const metadata = Metadata.Inject.get(target)
       metadata[index] = value
       Reflect.defineMetadata(INJECT_SYMBOL, metadata, target)
@@ -35,7 +35,7 @@ export default class Metadata {
   }
   static ParamTypes = {
     get(target: Object) {
-      return Reflect.getMetadata(PARAMS_TYPES, target)
+      return Reflect.getMetadata(PARAMS_TYPES, target) as any[]
     }
   }
   static Injectable = {

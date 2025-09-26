@@ -77,9 +77,38 @@ export default class Container {
         ? provider
         : provider.useClass || provider.useValue || provider.useFactory;
 
+      const dependencies = this.getProviderDependencies(provider);
+
+
+
     }
 
     return null;
+  }
+
+  private getProviderDependencies(provider: Provider) {
+    let dependencies: Key[];
+    let injecteds: Key[];
+    if (typeof provider === 'function') {
+      dependencies = Metadata.ParamTypes.get(provider);
+      injecteds = Metadata.Inject.get(provider);
+    }
+    if (typeof provider === 'object' && provider.useClass) {
+      dependencies = Metadata.ParamTypes.get(provider.useClass)
+      injecteds = Metadata.Inject.get(provider.useClass)
+    }
+    else return [];
+
+    for(const k in injecteds)
+      dependencies[k] = injecteds[k]
+
+    return dependencies;
+  }
+
+  private getProviderScopeType(provider: Provider) {
+    let type: "trans"
+    if (typeof provider === 'function')
+
   }
 }
 

@@ -24,10 +24,10 @@ export default class Metadata {
     }
   }
   static Inject = {
-    get(target: Object) {
+    get(target: Object): (Class | string)[] {
       return Reflect.getMetadata(INJECT_SYMBOL, target) || []
     },
-    set(target: Object, index: number, value: Class | String) {
+    set(target: Object, index: number, value: Class | string) {
       const metadata = Metadata.Inject.get(target)
       metadata[index] = value
       Reflect.defineMetadata(INJECT_SYMBOL, metadata, target)

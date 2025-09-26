@@ -1,4 +1,4 @@
-import { Class, Provider } from "../types/types";
+import { Class, InjectablePayload, Provider } from "../types/types";
 import Metadata from "./metadata";
 import { Reflector } from "./utilities";
 
@@ -105,10 +105,20 @@ export default class Container {
     return dependencies;
   }
 
-  private getProviderScopeType(provider: Provider) {
-    let type: "trans"
-    if (typeof provider === 'function')
-
+  private getProviderScopeType(provider: Provider): InjectablePayload {
+    let type;
+    if (typeof provider === 'function') {
+      if (
+        (type = Metadata.Injectable.get(provider)) === undefined
+      ) throw new Error(`Class ${provider.name} is not a injectable`)
+    }
+    if (typeof provider === 'object') {
+      if (!provider.useClass) return 'transient';
+      if (
+        (type = Metadata.Injectable.get(provider)) === undefined
+      ) throw new Error(`Class ${provider.useClass.name} is not a injectable`)
+    }
+    return type as InjectablePayload;
   }
 }
 

@@ -35,11 +35,11 @@ const app = ElectronDiFactory.createApp({
 Para declarar un modulo global se debe hacer de la siguiente manera
 
 ```typescript
-@Global({
-  imports: [...],
-  providers: [...]
-})
+@Global()
+@Module({...})
 export default class GlobalModule {}
 ```
 
-Nota: Cuando un modulo es global por defecto todos sus providers son exportados
+Nota: A la hora de exportar proveedores, se establecen en el arreglo de exportaciones del modulo donde se encuentra
+Nota: Se pueden reexportar proveedores, por ejemplo, en un modulo A exportas el proveedor P1 y en un modulo B importas el modulo A y puedes exportar el mismo proveedor P1.
+Nota: En el caso si se imprtan varios modulos con que exporten el proveedor P1, a la hora de resolver o exportar este proveedor, se toma el primero del modulo que lo exporte, lo mismo pasa con los modulos globales.

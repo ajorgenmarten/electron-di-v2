@@ -44,3 +44,20 @@ export class Reflector {
     return undefined;
   }
 }
+
+export class ArrayPipes<T = any> {
+  constructor(private array: Array<T>) {}
+
+  static getInstance<I = any>(array: Array<I>) {
+    return new ArrayPipes(array)
+  }
+
+  filterPipes(...pipes: ((v: T, i: number, a: T[]) => boolean)[]) {
+    return this.array.filter((value, index, array) => pipes.every(pipe => pipe(value, index, array)))
+  }
+
+  findPipes(...pipes: ((v: T, i: number, a: T[]) => boolean)[]) {
+     return this.array.find((value, index, array) => pipes.every(pipe => pipe(value, index, array)))
+  }
+}
+

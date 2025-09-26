@@ -1,130 +1,248 @@
-import { Class, InjectablePayload, Provider } from "../types/types";
+import { Class, InjectablePayload, ModulePayload, Provider } from "../types/types";
 import Metadata from "./metadata";
-import { Reflector } from "./utilities";
+import { ArrayPipes, Reflector } from "./utilities";
 
-// Clave para buscar el proveedor
 type Key = Class | string
 
-export default class Container {
-  private modules: Set<Class> = new Set();
-  // [MODULO, CONTROLADOR]
-  private controllers: [Class, Class][] = [];
-  // [MODULO, PROVEEDOR]
-  private providers: [Class, Provider][] = [];
-  // [MODULO, CLAVE DEL PROVEEDOR]
-  private exports: [Class, Key][] = [];
-  // [MODULO, CLAVE, INSTANCIA]
-  private instances: [Class, Key, any][] = [];
-  
-  public register(module: Class, visited: Class[]) {
-    const moduleMetadata = Metadata.Module.get(module)
-    if (!moduleMetadata) throw new Error(`Class ${module.name} is not a module.`)
-    if (visited.includes(module)) throw new Error(`Circular import for module ${module.name}.`)
-
-    const controllers = moduleMetadata.controllers ?? [];
-    const providers = moduleMetadata.providers ?? [];
-    const imports = moduleMetadata.imports ?? [];
-    const exports = moduleMetadata.exports ?? [];
-
-    for(const controller of controllers)
-      this.controllers.push([module, controller]);
-
-    for(const provider of providers)
-      this.providers.push([module, provider]);
-
-    for(const exportProvider of exports)
-      this.exports.push([module, exportProvider]);
-
-    this.modules.add(module);
-
-    for(const importModule of imports)
-      this.register(importModule, [...visited, module]);
+class ProviderHelpers {
+  static getKey(provider: Provider): Key {
+    return typeof provider === 'function'
+      ? provider
+      : provider.provided
   }
 
-  // Punto de entrada para resolver un proveedor
-  public resolve(key: Key, scope: Class, visited: Key[] = []) {
-    const utilities = [Reflector];
-
-    if (typeof key === 'function' && utilities.includes(key)) 
-      return new (utilities.find(u => u === key) as Class)()
-
-    if (visited.includes(key))
-      throw new Error(`Circular dependency detected for ${typeof key === 'string' ? key : key.name}`)
-
-    const globalProvider = this.resolveInGlobalModules(key, [...visited])
-
-  }
-
-  // Resolver provider en modulos globales
-  private resolveInGlobalModules(key: Key, visited: Key[]) {
-    const getGlobalModules = () => {
-      const globals = [];
-      for(const module of this.modules) {
-        const globalMetadata = Metadata.Global.get(module)
-        if (global) globals.push(module)
-      }
-      return globals;
-    }
-
-    const globalsModules = getGlobalModules();
-    for(const globalModule of globalsModules) {
-      const foundProvider = this.providers.find(p => {
-        const [providerScope, provider] = p;
-        if (providerScope !== globalModule) return false;
-        if (typeof provider === 'object' && provider.provided !== key) return false;
-        return true;
-      });
-      if (!foundProvider) continue;
-
-      const [, provider] = foundProvider;
-      let providerValue = typeof provider === 'function'
-        ? provider
-        : provider.useClass || provider.useValue || provider.useFactory;
-
-      const dependencies = this.getProviderDependencies(provider);
-
-
-
-    }
-
-    return null;
-  }
-
-  // Obtener las dependencias del provider
-  private getProviderDependencies(provider: Provider) {
-    let dependencies: Key[];
-    let injecteds: Key[];
+  static getScopeType(provider: Provider): InjectablePayload {
     if (typeof provider === 'function') {
-      dependencies = Metadata.ParamTypes.get(provider);
-      injecteds = Metadata.Inject.get(provider);
+      const scope = Metadata.Injectable.get(provider)
+      if (!scope) throw new NotInjectableError(provider.name);
+      return scope;
     }
-    if (typeof provider === 'object' && provider.useClass) {
-      dependencies = Metadata.ParamTypes.get(provider.useClass)
-      injecteds = Metadata.Inject.get(provider.useClass)
+    if (provider.useClass) {
+      const scope = Metadata.Injectable.get(provider.useClass)
+      if (!scope) throw new NotInjectableError(provider.useClass.name);
+      return scope;
     }
-    else return [];
+    if (provider.useFactory) return 'singleton';
+    return 'transient'
+  }
 
-    for(const k in injecteds)
-      dependencies[k] = injecteds[k]
+  static getDependencyKeys(provider: Provider): Key[] {
+    let dependencies: Key[];
+    let injects: Key[];
+
+    if (typeof provider === 'function') {
+      dependencies = Metadata.ParamTypes.get(provider)
+      injects = Metadata.Inject.get(provider)
+    } else {
+      if (!provider.useClass) return []
+      dependencies = Metadata.ParamTypes.get(provider.useClass)
+      injects = Metadata.Inject.get(provider.useClass)
+    }
+    
+    if (!dependencies) {
+      const providedKey = this.getKey(provider);
+      throw new NotClassError(
+        typeof providedKey === 'function'
+          ? providedKey.name : providedKey
+      )
+    }
+      
+
+    for(const k in injects)
+      dependencies[k] = injects[k]
 
     return dependencies;
   }
+}
 
-  // Obtener el scope de vida del provider
-  private getProviderScopeType(provider: Provider): InjectablePayload {
-    let type;
-    if (typeof provider === 'function') {
-      if (
-        (type = Metadata.Injectable.get(provider)) === undefined
-      ) throw new Error(`Class ${provider.name} is not a injectable`)
-    }
-    if (typeof provider === 'object') {
-      if (!provider.useClass) return 'transient';
-      if (
-        (type = Metadata.Injectable.get(provider)) === undefined
-      ) throw new Error(`Class ${provider.useClass.name} is not a injectable`)
-    }
-    return type as InjectablePayload;
+class ProviderFinder {
+  constructor(
+    private modules: [Class, ModulePayload][] = [],
+    private instances: [Class, Key, any][] = [],
+    private providers: [Class, Provider][] = [],
+    private exports: [Class, Key][] = [],
+  ) {}
+
+  public findInstance(providerKey: Key, moduleScope: Class) {
+    return ArrayPipes.getInstance(this.instances)
+      .findPipes(
+        ([v]) => v === moduleScope,
+        ([,k]) => k === providerKey,
+      )
+  }
+
+  public findInScope(providerKey: Key, moduleScope: Class) {
+    return ArrayPipes.getInstance(this.providers)
+      .findPipes(
+        ([v]) => v === moduleScope,
+        ([,p]) => ProviderHelpers.getKey(p) === providerKey
+      )
+  }
+
+  public findInShared(providerKey: Key, moduleScope: Class) {
+    const sharedModules = this.modules.find(([module]) => {
+      return module === moduleScope
+    })?.[1].imports ?? []
+
+    const exportedProvider = ArrayPipes.getInstance(this.exports)
+      .findPipes(
+        ([module]) => sharedModules.includes(module),
+        ([,key]) => providerKey === key
+      )
+
+    if (!exportedProvider) return undefined;
+
+    const [sharedModule] = exportedProvider
+    return this.findInScope(providerKey, sharedModule);
   }
 }
 
+class Container {
+  // { Modulo: Payload }
+  private modules: [Class, ModulePayload][] = []
+  // { Modulo: Controller }
+  private controllers: [Class, Class][] = []
+  // { Modulo: Provider }
+  private providers: [Class, Provider][] = []
+  // { Modulo: Provider Key }
+  private exports: [Class, Key][] = []
+  // { Modulo: { ProviderKey: instance } }
+  private instances: [Class, Key, any][] = []
+
+  private finder: ProviderFinder;
+
+  constructor() {
+    this.finder = new ProviderFinder(
+      this.modules,
+      this.instances,
+      this.providers,
+      this.exports,
+    );
+  }
+
+  public register(module: Class, visited: Class[] = []) {
+    const metadata = Metadata.Module.get(module);
+    if (!metadata) throw new NotModuleError(module.name);
+    if (visited.includes(module)) throw new CircularDependencyError(module.name);
+
+    const { controllers, providers, imports, exports } = metadata;
+    for(const controller of controllers ?? [])
+      this.controllers.push([module, controller]);
+
+    for (const provider of providers ?? [])
+      this.providers.push([module, provider]);
+
+    for(const exportp of exports ?? [])
+      this.exports.push([module, exportp])
+
+    this.modules.push([module, metadata]);
+
+    for(const importModule of imports ?? [])
+      this.register(importModule, [...visited, module])
+  }
+
+  public resolve(providerKey: Key, scopeModule: Class, providersVisited: Key[]): any {
+    const utilities = [Reflector];
+
+    if (typeof providerKey === 'function' && utilities.includes(providerKey))
+      return utilities.find(u => u === providerKey);
+
+    if (providersVisited.includes(providerKey))
+      throw new CircularDependencyError(typeof providerKey === 'function' ? providerKey.name : providerKey);
+
+    // Buscar si existe una instancia
+    const instance = this.finder.findInstance(providerKey, scopeModule);
+
+    if (typeof instance !== 'undefined') return instance[2];
+
+    // Buscar si existe en el scope actual
+    const providerInScope = this.finder.findInScope(providerKey, scopeModule);
+
+    if (providerInScope) {
+      const [, provider] = providerInScope;
+      const dependencies = ProviderHelpers.getDependencyKeys(provider);
+      const scopeType = ProviderHelpers.getScopeType(provider);
+      return this.createInstance(provider, dependencies, scopeModule, scopeType, providersVisited);
+    }
+
+    const providerInSharedModules = this.finder.findInShared(providerKey, scopeModule)
+
+    if (providerInSharedModules) {
+      const [module, provider] = providerInSharedModules;
+      const dependencies = ProviderHelpers.getDependencyKeys(provider);
+      const scopeType = ProviderHelpers.getScopeType(provider);
+      return this.createInstance(provider, dependencies, module, scopeType, providersVisited);
+    }
+
+    const globalModules = this.modules.filter(([globalModule]) => Metadata.Global.get(globalModule))
+
+    for(const globalModule of globalModules) {
+      const result = this.resolve(providerKey, globalModule[0], providersVisited)
+      if (typeof result === 'undefined') continue;
+      return result;
+    }
+
+    return undefined;
+  }
+
+  private createInstance(
+    provider: Provider,
+    dependencies: Key[],
+    scopeModule: Class,
+    scopeType: InjectablePayload,
+    providersVisited: Key[]
+  ): any {
+    const providerKey = ProviderHelpers.getKey(provider);
+    const resolvedDependencies = dependencies
+      .map(k => this.resolve(k, scopeModule, [...providersVisited, providerKey]))
+    const instance = typeof provider === 'function'
+      ? new (provider)(...resolvedDependencies)
+      : provider.useClass
+        ? new (provider.useClass)(...resolvedDependencies)
+        : provider.useValue
+          ? provider.useValue
+          : provider.useFactory
+    if (scopeType === 'singleton')
+      this.instances.push([scopeModule, providerKey, instance])
+    return instance;
+  }
+}
+
+// MANEJO DE ERRORES
+class ContainerError extends Error {
+  private code: string;
+  constructor(message: string, code: string) {
+    super(message)
+    this.code = code;
+    this.name = 'ContainerError';
+  }
+}
+class CircularDependencyError extends ContainerError {
+  constructor(item: string) {
+    super(
+      `Circular dependency detected for ${item}`,
+      'CIRCULAR_DEPENDENCY'
+    )
+  }
+}
+class NotInjectableError extends ContainerError {
+  constructor(item: string) {
+    super(
+      `Class ${item} is not injectable`,
+      'NOT_INJECTABLE'
+    );
+  }
+}
+class NotModuleError extends ContainerError {
+  constructor(item: string) {
+    super(
+      `Class ${item} is not a module`,
+      'NOT_MODULE'
+    )
+  }
+}
+class NotClassError extends ContainerError {
+  constructor(item: string) {
+    super(`Value provided for ${item} is not a class`, 'NOT_CLASS')
+  }
+}
